@@ -1,11 +1,11 @@
-# RoomEasy
+# RoomEz
 
-## Somos alunos do quarto periodo de ciência da computação e om RoomEasy é uma aplicação web feita para a cadeira de Banco de Dados
+RoomEz é uma aplicação web projetada para simplificar o processo de reserva de hotéis. Com uma interface intuitiva e amigável, RoomEz permite aos usuários pesquisar, comparar e reservar quartos de hotel com facilidade.
 
 # Participantes
 
-## Rodrigo Lucena Cavalcanti - rlc2@cesar.school
+Rodrigo Lucena Cavalcanti - rlc2@cesar.school
 
-## Caio Machado de Aquino Fonseca - cmaf@cesar.school
+Caio Machado de Aquino Fonseca - cmaf@cesar.school
 
-## Miguel josé  França de Andrade - mjfa@cesar.school
+Miguel josé  França de Andrade - mjfa@cesar.school
