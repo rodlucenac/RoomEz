@@ -1,6 +1,6 @@
 # RoomEz
 
-RoomEz é uma aplicação web projetada para simplificar o processo de reserva de hotéis. Com uma interface intuitiva e amigável, RoomEz permite aos usuários pesquisar, comparar e reservar quartos de hotel com facilidade.
+## RoomEz é uma aplicação web projetada para simplificar o processo de reserva de hotéis. Com uma interface intuitiva e amigável, RoomEz permite aos usuários pesquisar e reservar quartos de hotel com facilidade.
 
 # Participantes
 
