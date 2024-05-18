@@ -57,7 +57,53 @@ def show_home():
         
     cursor.close()
     conn.close()
+def show_login_page():
+    st.subheader("Login")
+    username = st.text_input("Nome de usuário", key="login_username")
+    password = st.text_input("Senha", type="password", key="login_password")
 
+    login_col, signup_col = st.columns(2)  # Divide a linha em duas colunas para os botões
+    with login_col:
+        if st.button("Login"):
+            if authenticate(username, password):  # Suponha que você tem uma função para autenticar
+                st.session_state['logged_in'] = True
+                st.session_state['user_id'] = get_user_id(username)  # Suponha que você tem uma função para pegar o ID do usuário
+                st.experimental_rerun()
+            else:
+                st.error("Usuário ou senha incorretos")
+
+    with signup_col:
+        if st.button("Cadastre-se"):
+            st.session_state['current_page'] = show_cadastro()
+
+def authenticate(email, senha):
+    # Aqui você implementaria a lógica de autenticação
+    return True  # Simulação de autenticação bem-sucedida
+
+def get_user_id(email):
+    # Simulação de obtenção do ID de usuário
+    return 1
+
+def show_reservas():
+    if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
+        st.warning("Você precisa estar logado para ver suas reservas.")
+        show_login_page()
+        return
+
+    st.title("Suas Reservas")
+    conn = conectar()
+    if conn is not None:
+        cursor = conn.cursor()
+        query = "SELECT * FROM Reservas WHERE cliente_id = %s"
+        cursor.execute(query, (st.session_state['user_id'],))
+        reservas = cursor.fetchall()
+        if reservas:
+            for reserva in reservas:
+                st.write(f"Reserva no {reserva[2]}, de {reserva[4]} até {reserva[5]}")
+        else:
+            st.write("Você não tem reservas.")
+        cursor.close()
+        conn.close()
 def main():
     st.sidebar.title("Menu")
     app_mode = st.sidebar.selectbox("Escolha uma opção",
