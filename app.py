@@ -4,7 +4,6 @@ import bcrypt
 from datetime import date
 import threading
 import time
-from datetime import datetime, timedelta
 
 def show_home():
     st.title("Página Inicial - Escolha um Hotel")
