@@ -12,7 +12,22 @@ def show_cadastro():
 
     if st.button("Registrar"):
         if senha == confirmar_senha:
-            st.success("Cliente registrado com sucesso!")
+            conn = conectar()
+            if conn is not None:
+                try:
+                    cursor = conn.cursor()
+                    query = """
+                    INSERT INTO Cliente (Nome, Email, Senha, Sexo)
+                    VALUES (%s, %s, %s, %s)
+                    """
+                    cursor.execute(query, (nome, email, senha, sexo))
+                    conn.commit()
+                    st.success("Cliente registrado com sucesso!")
+                except Exception as e:
+                    st.error(f"Erro ao inserir dados no banco de dados: {e}")
+                finally:
+                    cursor.close()
+                    conn.close()
         else:
             st.error("As senhas não coincidem.")
 

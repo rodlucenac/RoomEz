@@ -6,8 +6,8 @@ def conectar():
     conn = mysql.connector.connect(
       host='localhost',
       port=3306,
-      database='roomez',
-      user='admin',
+      database='RoomEz',
+      user='adm',
       password='rlc20040714'
     )
     return conn
