@@ -123,6 +123,8 @@ def show_reservation_form(hotel_id):
 def show_payment_page():
     if 'current_reserva_id' not in st.session_state:
         st.error("Nenhuma reserva encontrada.")
+        st.session_state['current_page'] = "Pagamento"
+        st.experimental_rerun()
         return
 
     reserva_id = st.session_state['current_reserva_id']
@@ -144,19 +146,56 @@ def show_payment_page():
         cartao_validade = st.text_input("Validade (MM/AA)")
         cartao_cvc = st.text_input("CVC")
         if st.button("Pagar"):
-            st.success("Pagamento realizado com sucesso!")
-            st.session_state['current_page'] = "Home"
-            st.experimental_rerun()
+            # Simular a inserção do pagamento no banco de dados
+            conn = conectar()
+            cursor = conn.cursor()
+            try:
+                query = "INSERT INTO Pagamento (Reserva_id, Tipo, Aprovado, Valor) VALUES (%s, %s, %s, %s)"
+                cursor.execute(query, (reserva_id, "Cartão de Crédito", True, valor_reserva))
+                conn.commit()
+                st.success("Pagamento realizado com sucesso!")
+                st.session_state['current_page'] = "Home"
+                del st.session_state['current_reserva_id']
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Erro ao registrar pagamento: {e}")
+            finally:
+                cursor.close()
+                conn.close()
     elif metodo_pagamento == "Boleto":
-        st.write("Gerando boleto...")
-        st.success("Boleto gerado com sucesso! Pague no seu banco ou app de preferência.")
-        st.session_state['current_page'] = "Home"
-        st.experimental_rerun()
+        # Simular a geração de boleto
+        conn = conectar()
+        cursor = conn.cursor()
+        try:
+            query = "INSERT INTO Pagamento (Reserva_id, Tipo, Aprovado, Valor) VALUES (%s, %s, %s, %s)"
+            cursor.execute(query, (reserva_id, "Boleto", False, valor_reserva))
+            conn.commit()
+            st.success("Boleto gerado com sucesso! Pague no seu banco ou app de preferência.")
+            st.session_state['current_page'] = "Home"
+            del st.session_state['current_reserva_id']
+            st.experimental_rerun()
+        except Exception as e:
+            st.error(f"Erro ao registrar pagamento: {e}")
+        finally:
+            cursor.close()
+            conn.close()
     elif metodo_pagamento == "Pix":
-        st.write("Chave PIX: 123e4567-e89b-12d3-a456-426614174000")
-        st.success("Use a chave PIX acima para realizar o pagamento.")
-        st.session_state['current_page'] = "Home"
-        st.experimental_rerun()
+        # Simular a geração de chave PIX
+        conn = conectar()
+        cursor = conn.cursor()
+        try:
+            query = "INSERT INTO Pagamento (Reserva_id, Tipo, Aprovado, Valor) VALUES (%s, %s, %s, %s)"
+            cursor.execute(query, (reserva_id, "Pix", False, valor_reserva))
+            conn.commit()
+            st.success("Use a chave PIX acima para realizar o pagamento.")
+            st.session_state['current_page'] = "Home"
+            del st.session_state['current_reserva_id']
+            st.experimental_rerun()
+        except Exception as e:
+            st.error(f"Erro ao registrar pagamento: {e}")
+        finally:
+            cursor.close()
+            conn.close()
 
 def show_login_page():
     st.subheader("Login")
