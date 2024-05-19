@@ -2,13 +2,42 @@ import streamlit as st
 from banco import conectar
 import bcrypt
 from datetime import date
+import threading
+import time
+from datetime import datetime, timedelta
 
 def show_home():
     st.title("Página Inicial - Escolha um Hotel")
     
     conn = conectar()
     cursor = conn.cursor()
-    cursor.execute("SELECT Hotel_id, nome, cidade FROM Hoteis")
+
+    cursor.execute("SELECT DISTINCT cidade FROM Hoteis")
+    cidades = [cidade[0] for cidade in cursor.fetchall()]
+    cursor.close()
+
+    cidade_escolhida = st.selectbox("Selecione a cidade", ["Todas"] + cidades)
+
+    criterio_ordem = st.selectbox("Ordenar por", ["Preço (Menor para Maior)", "Preço (Maior para Menor)", "Rating (Maior para Menor)", "Rating (Menor para Maior)"])
+
+    query = "SELECT Hotel_id, nome, cidade FROM Hoteis"
+    params = []
+
+    if cidade_escolhida != "Todas":
+        query += " WHERE cidade = %s"
+        params.append(cidade_escolhida)
+
+    if "Preço" in criterio_ordem:
+        query += " ORDER BY preco"
+        if "Maior para Menor" in criterio_ordem:
+            query += " DESC"
+    elif "Rating" in criterio_ordem:
+        query += " ORDER BY rating"
+        if "Menor para Maior" in criterio_ordem:
+            query += " ASC"
+
+    cursor = conn.cursor()
+    cursor.execute(query, params)
     hoteis = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -77,8 +106,8 @@ def show_reservation_form(hotel_id):
             try:
                 cursor = conn.cursor()
                 query = """
-                INSERT INTO Reserva (Cliente_id, Hotel_id, Nome_completo, CPF, Metodo_pagamento, Data_entrada, Data_saida, Valor_reserva)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO Reserva (Cliente_id, Hotel_id, Nome_completo, CPF, Metodo_pagamento, Data_entrada, Data_saida, Valor_reserva, Timestamp)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                 """
                 cursor.execute(query, (st.session_state['user_id'], hotel_id, nome_completo, cpf, metodo_pagamento, data_entrada, data_saida, valor_reserva))
                 reserva_id = cursor.lastrowid
@@ -237,9 +266,36 @@ def show_cadastro():
         else:
             st.error("As senhas não coincidem.")
 
+def cancelar_reservas_nao_pagas():
+    while True:
+        conn = conectar()
+        if conn is not None:
+            try:
+                cursor = conn.cursor()
+                query = """
+                DELETE FROM Reserva
+                WHERE TIMESTAMPDIFF(MINUTE, Timestamp, NOW()) > 30
+                AND Reserva_id NOT IN (
+                    SELECT Reserva_id FROM Pagamento
+                )
+                """
+                cursor.execute(query)
+                conn.commit()
+                cursor.close()
+            except Exception as e:
+                print(f"Erro ao cancelar reservas: {e}")
+            finally:
+                conn.close()
+        time.sleep(1800)
+
 def main():
     if 'current_page' not in st.session_state:
         st.session_state['current_page'] = "Home"
+
+    if 'reservas_thread' not in st.session_state:
+        st.session_state['reservas_thread'] = threading.Thread(target=cancelar_reservas_nao_pagas)
+        st.session_state['reservas_thread'].daemon = True
+        st.session_state['reservas_thread'].start()
     
     st.sidebar.title("Menu")
     app_mode = st.sidebar.selectbox("Escolha uma opção",
