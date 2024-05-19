@@ -1,103 +1,190 @@
 import streamlit as st
 from banco import conectar
-
-def show_cadastro():
-    st.title("Cadastro de Cliente")
-    st.subheader("Cadastro de Cliente")
-    nome = st.text_input("Nome Completo")
-    email = st.text_input("Email")
-    senha = st.text_input("Senha", type="password")
-    confirmar_senha = st.text_input("Confirmar Senha", type="password")
-    sexo = st.selectbox("Sexo", ["Masculino", "Feminino", "Outro"])
-
-    if st.button("Registrar"):
-        if senha == confirmar_senha:
-            conn = conectar()
-            if conn is not None:
-                try:
-                    cursor = conn.cursor()
-                    query = """
-                    INSERT INTO Cliente (Nome, Email, Senha, Sexo)
-                    VALUES (%s, %s, %s, %s)
-                    """
-                    cursor.execute(query, (nome, email, senha, sexo))
-                    conn.commit()
-                    st.success("Cliente registrado com sucesso!")
-                except Exception as e:
-                    st.error(f"Erro ao inserir dados no banco de dados: {e}")
-                finally:
-                    cursor.close()
-                    conn.close()
-        else:
-            st.error("As senhas não coincidem.")
-
-def show_reservas():
-    st.title("Reservas")
-    st.subheader("Fazer Reserva")
-    nome_completo = st.text_input("Nome Completo")
-    cpf = st.text_input("CPF")
-    tipo_quarto = st.selectbox("Tipo de Quarto", ["Simples", "Duplo", "Suite"])
-    metodo_pagamento = st.selectbox("Método de Pagamento", ["Cartão de Crédito", "Boleto", "Pix"])
-    data_entrada = st.date_input("Data de Entrada")
-    data_saida = st.date_input("Data de Saída")
-    
-    if st.button("Reservar"):
-        st.success("Reserva realizada com sucesso!")
+import bcrypt
+from datetime import date
 
 def show_home():
     st.title("Página Inicial - Escolha um Hotel")
     
     conn = conectar()
     cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT cidade FROM Hoteis")
-    cidades = cursor.fetchall()
-    cidade_escolhida = st.selectbox("Escolha a cidade", [cidade[0] for cidade in cidades])
-
-    ordenacao = st.selectbox("Ordenar por", ["Rating", "Menor Preço", "Maior Preço"])
-    
-    query = "SELECT nome, preco, rating FROM Hoteis WHERE cidade = %s"
-    if ordenacao == "Rating":
-        query += " ORDER BY rating DESC"
-    elif ordenacao == "Menor Preço":
-        query += " ORDER BY preco ASC"
-    else:
-        query += " ORDER BY preco DESC"
-    
-    cursor.execute(query, (cidade_escolhida,))
+    cursor.execute("SELECT Hotel_id, nome, cidade FROM Hoteis")
     hoteis = cursor.fetchall()
-    
-    for hotel in hoteis:
-        st.subheader(f"{hotel[0]} - {hotel[2]}★")
-        st.text(f"Preço por noite: R$ {hotel[1]:,.2f}")
-        
     cursor.close()
     conn.close()
+
+    for hotel in hoteis:
+        if st.button(f"Ver detalhes de {hotel[1]}", key=hotel[0]):
+            st.session_state['current_hotel_id'] = hotel[0]
+            st.session_state['current_page'] = "Hotel"
+            st.experimental_rerun()
+
+def show_hotel_details(hotel_id):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT nome, cidade, endereco_rua, endereco_cidade, endereco_estado, endereco_cep, telefone, rating, preco, foto FROM Hoteis WHERE Hotel_id = %s", (hotel_id,))
+    hotel = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if hotel:
+        st.title(hotel[0])
+        st.image(hotel[9], use_column_width=True)
+        st.write(f"Local: {hotel[1]}, {hotel[2]}, {hotel[3]}, {hotel[4]}, CEP: {hotel[5]}")
+        st.write(f"Telefone: {hotel[6]}")
+        st.write(f"Rating: {hotel[7]}★")
+        st.write(f"Preço da diária: R$ {hotel[8]:,.2f}")
+
+        if st.button("Reservar este hotel"):
+            st.session_state['current_page'] = "Reservar"
+            st.session_state['current_hotel_id'] = hotel_id
+            st.experimental_rerun()
+
+def show_reservation_form(hotel_id):
+    if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
+        st.session_state['target_page'] = 'Reservar'
+        st.session_state['current_hotel_id'] = hotel_id
+        st.session_state['current_page'] = 'Login'
+        st.experimental_rerun()
+        return
+
+    st.title("Formulário de Reserva")
+    nome_completo = st.text_input("Nome Completo")
+    cpf = st.text_input("CPF")
+    metodo_pagamento = st.selectbox("Método de Pagamento", ["Cartão de Crédito", "Boleto", "Pix"])
+    data_entrada = st.date_input("Data de Entrada", min_value=date.today())
+    data_saida = st.date_input("Data de Saída", min_value=date.today())
+
+    if data_entrada >= data_saida:
+        st.error("A data de saída deve ser após a data de entrada")
+        return
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT preco FROM Hoteis WHERE Hotel_id = %s", (hotel_id,))
+    preco_diaria = cursor.fetchone()[0]
+    cursor.close()
+    conn.close()
+
+    num_dias = (data_saida - data_entrada).days
+    valor_reserva = num_dias * preco_diaria
+
+    st.write(f"Valor total da reserva: R$ {valor_reserva:.2f}")
+
+    if st.button("Confirmar Reserva"):
+        conn = conectar()
+        if conn is not None:
+            try:
+                cursor = conn.cursor()
+                query = """
+                INSERT INTO Reserva (Cliente_id, Hotel_id, Nome_completo, CPF, Metodo_pagamento, Data_entrada, Data_saida, Valor_reserva)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """
+                cursor.execute(query, (st.session_state['user_id'], hotel_id, nome_completo, cpf, metodo_pagamento, data_entrada, data_saida, valor_reserva))
+                reserva_id = cursor.lastrowid
+                conn.commit()
+                st.session_state['current_reserva_id'] = reserva_id
+                st.session_state['current_page'] = "Pagamento"
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Erro ao inserir dados no banco de dados: {e}")
+            finally:
+                cursor.close()
+                conn.close()
+
+def show_payment_page():
+    if 'current_reserva_id' not in st.session_state:
+        st.error("Nenhuma reserva encontrada.")
+        return
+
+    reserva_id = st.session_state['current_reserva_id']
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT Metodo_pagamento, Valor_reserva FROM Reserva WHERE Reserva_id = %s", (reserva_id,))
+    reserva = cursor.fetchone()
+    metodo_pagamento = reserva[0]
+    valor_reserva = reserva[1]
+    cursor.close()
+    conn.close()
+
+    st.title("Pagamento")
+    st.write(f"Valor total: R$ {valor_reserva:.2f}")
+
+    if metodo_pagamento == "Cartão de Crédito":
+        cartao_numero = st.text_input("Número do Cartão")
+        cartao_validade = st.text_input("Validade (MM/AA)")
+        cartao_cvc = st.text_input("CVC")
+        if st.button("Pagar"):
+            st.success("Pagamento realizado com sucesso!")
+            st.session_state['current_page'] = "Home"
+            st.experimental_rerun()
+    elif metodo_pagamento == "Boleto":
+        st.write("Gerando boleto...")
+        st.success("Boleto gerado com sucesso! Pague no seu banco ou app de preferência.")
+        st.session_state['current_page'] = "Home"
+        st.experimental_rerun()
+    elif metodo_pagamento == "Pix":
+        st.write("Chave PIX: 123e4567-e89b-12d3-a456-426614174000")
+        st.success("Use a chave PIX acima para realizar o pagamento.")
+        st.session_state['current_page'] = "Home"
+        st.experimental_rerun()
+
 def show_login_page():
     st.subheader("Login")
-    username = st.text_input("Nome de usuário", key="login_username")
-    password = st.text_input("Senha", type="password", key="login_password")
+    email = st.text_input("Nome de usuário", key="login_email")
+    senha = st.text_input("Senha", type="password", key="login_senha")
 
-    login_col, signup_col = st.columns(2)  # Divide a linha em duas colunas para os botões
+    login_col, signup_col = st.columns(2)
     with login_col:
         if st.button("Login"):
-            if authenticate(username, password):  # Suponha que você tem uma função para autenticar
+            if authenticate(email, senha):
                 st.session_state['logged_in'] = True
-                st.session_state['user_id'] = get_user_id(username)  # Suponha que você tem uma função para pegar o ID do usuário
+                st.session_state['user_id'] = get_user_id(email)
+                if 'target_page' in st.session_state:
+                    target_page = st.session_state['target_page']
+                    del st.session_state['target_page']
+                    st.session_state['current_page'] = target_page
+                else:
+                    st.session_state['current_page'] = 'Home'
                 st.experimental_rerun()
             else:
                 st.error("Usuário ou senha incorretos")
 
     with signup_col:
         if st.button("Cadastre-se"):
-            st.session_state['current_page'] = show_cadastro()
+            st.session_state['current_page'] = "Cadastro"
+            st.experimental_rerun()
 
 def authenticate(email, senha):
-    # Aqui você implementaria a lógica de autenticação
-    return True  # Simulação de autenticação bem-sucedida
+    conn = conectar()
+    if conn is not None:
+        cursor = conn.cursor(buffered=True)
+        try:
+            cursor.execute("SELECT senha FROM Cliente WHERE email = %s", (email,))
+            senha_hashed = cursor.fetchone()
+            if senha_hashed and bcrypt.checkpw(senha.encode('utf-8'), senha_hashed[0].encode('utf-8')):
+                return True
+            else:
+                return False
+        except Exception as e:
+            st.error(f"Erro ao verificar usuário: {e}")
+            return False
+        finally:
+            cursor.close()
+            conn.close()
 
 def get_user_id(email):
-    # Simulação de obtenção do ID de usuário
-    return 1
+    conn = conectar()
+    if conn is not None:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT Cliente_id FROM Cliente WHERE email = %s", (email,))
+            user_id = cursor.fetchone()
+            return user_id[0] if user_id else None
+        finally:
+            cursor.close()
+            conn.close()
 
 def show_reservas():
     if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
@@ -109,27 +196,76 @@ def show_reservas():
     conn = conectar()
     if conn is not None:
         cursor = conn.cursor()
-        query = "SELECT * FROM Reservas WHERE cliente_id = %s"
+        query = "SELECT * FROM Reserva WHERE Cliente_id = %s"
         cursor.execute(query, (st.session_state['user_id'],))
         reservas = cursor.fetchall()
         if reservas:
             for reserva in reservas:
-                st.write(f"Reserva no {reserva[2]}, de {reserva[4]} até {reserva[5]}")
+                st.write(f"Reserva no hotel {reserva[2]}, de {reserva[4]} até {reserva[5]}, valor: R$ {reserva[8]:,.2f}")
         else:
             st.write("Você não tem reservas.")
         cursor.close()
         conn.close()
+
+def show_cadastro():
+    st.title("Cadastro de Cliente")
+    nome = st.text_input("Nome Completo")
+    email = st.text_input("Email")
+    senha = st.text_input("Senha", type="password")
+    confirmar_senha = st.text_input("Confirmar Senha", type="password")
+    sexo = st.selectbox("Sexo", ["Masculino", "Feminino", "Outro"])
+
+    if st.button("Registrar"):
+        if senha == confirmar_senha:
+            senha_hashed = bcrypt.hashpw(senha.encode('utf-8'), bcrypt.gensalt())
+            conn = conectar()
+            if conn is not None:
+                try:
+                    cursor = conn.cursor()
+                    query = """
+                    INSERT INTO Cliente (Nome, Email, Senha, Sexo)
+                    VALUES (%s, %s, %s, %s)
+                    """
+                    cursor.execute(query, (nome, email, senha_hashed, sexo))
+                    conn.commit()
+                    st.success("Cliente registrado com sucesso!")
+                except Exception as e:
+                    st.error(f"Erro ao inserir dados no banco de dados: {e}")
+                finally:
+                    cursor.close()
+                    conn.close()
+        else:
+            st.error("As senhas não coincidem.")
+
 def main():
+    if 'current_page' not in st.session_state:
+        st.session_state['current_page'] = "Home"
+    
     st.sidebar.title("Menu")
     app_mode = st.sidebar.selectbox("Escolha uma opção",
-                                    ["Home", "Cadastro", "Reservas"])
+                                    ["Home", "Cadastro", "Reservas", "Login", "Hotel", "Reservar", "Pagamento"],
+                                    index=["Home", "Cadastro", "Reservas", "Login", "Hotel", "Reservar", "Pagamento"].index(st.session_state.get('current_page', 'Home')))
 
     if app_mode == "Home":
+        st.session_state['current_page'] = "Home"
         show_home()
     elif app_mode == "Cadastro":
+        st.session_state['current_page'] = "Cadastro"
         show_cadastro()
     elif app_mode == "Reservas":
+        st.session_state['current_page'] = "Reservas"
         show_reservas()
+    elif app_mode == "Login":
+        st.session_state['current_page'] = "Login"
+        show_login_page()
+    elif app_mode == "Hotel":
+        if 'current_hotel_id' in st.session_state:
+            show_hotel_details(st.session_state['current_hotel_id'])
+    elif app_mode == "Reservar":
+        if 'current_hotel_id' in st.session_state:
+            show_reservation_form(st.session_state['current_hotel_id'])
+    elif app_mode == "Pagamento":
+        show_payment_page()
 
 if __name__ == "__main__":
     main()
