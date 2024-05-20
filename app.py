@@ -4,6 +4,7 @@ import bcrypt
 from datetime import date
 import threading
 import time
+from email_send import send_email
 
 def show_home():
     st.title("Página Inicial - Escolha um Hotel")
@@ -123,7 +124,7 @@ def show_reservation_form(hotel_id):
 def show_payment_page():
     if 'current_reserva_id' not in st.session_state:
         st.error("Nenhuma reserva encontrada.")
-        st.session_state['current_page'] = "Pagamento"
+        st.session_state['current_page'] = "Home"
         st.experimental_rerun()
         return
 
@@ -143,16 +144,30 @@ def show_payment_page():
 
     if metodo_pagamento == "Cartão de Crédito":
         cartao_numero = st.text_input("Número do Cartão")
-        cartao_validade = st.text_input("Validade (MM/AA)")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            cartao_mes = st.text_input("Validade Mês (MM)", max_chars=2)
+        with col2:
+            cartao_ano = st.text_input("Validade Ano (AA)", max_chars=2)
+        
         cartao_cvc = st.text_input("CVC")
         if st.button("Pagar"):
-            # Simular a inserção do pagamento no banco de dados
             conn = conectar()
             cursor = conn.cursor()
             try:
                 query = "INSERT INTO Pagamento (Reserva_id, Tipo, Aprovado, Valor) VALUES (%s, %s, %s, %s)"
                 cursor.execute(query, (reserva_id, "Cartão de Crédito", True, valor_reserva))
                 conn.commit()
+                
+                email_query = "SELECT email FROM Cliente WHERE cliente_id = %s"
+                cursor.execute(email_query, (st.session_state['user_id'],))
+                email = cursor.fetchone()[0]
+                
+                email_subject = "Confirmação de Pagamento - RoomEz"
+                email_body = f"Olá,\n\nSeu pagamento para a reserva #{reserva_id} foi aprovado com sucesso.\n\nDetalhes do pagamento:\n\nValor: R$ {valor_reserva:.2f}\nMétodo de Pagamento: Cartão de Crédito\n\nObrigado por usar o RoomEz!"
+                send_email(email_subject, email_body, email)
+
                 st.success("Pagamento realizado com sucesso!")
                 st.session_state['current_page'] = "Home"
                 del st.session_state['current_reserva_id']
@@ -163,39 +178,15 @@ def show_payment_page():
                 cursor.close()
                 conn.close()
     elif metodo_pagamento == "Boleto":
-        # Simular a geração de boleto
-        conn = conectar()
-        cursor = conn.cursor()
-        try:
-            query = "INSERT INTO Pagamento (Reserva_id, Tipo, Aprovado, Valor) VALUES (%s, %s, %s, %s)"
-            cursor.execute(query, (reserva_id, "Boleto", False, valor_reserva))
-            conn.commit()
-            st.success("Boleto gerado com sucesso! Pague no seu banco ou app de preferência.")
-            st.session_state['current_page'] = "Home"
-            del st.session_state['current_reserva_id']
-            st.experimental_rerun()
-        except Exception as e:
-            st.error(f"Erro ao registrar pagamento: {e}")
-        finally:
-            cursor.close()
-            conn.close()
+        st.success("Boleto gerado com sucesso! Pague no seu banco ou app de preferência.")
+        st.session_state['current_page'] = "Home"
+        del st.session_state['current_reserva_id']
+        st.experimental_rerun()
     elif metodo_pagamento == "Pix":
-        # Simular a geração de chave PIX
-        conn = conectar()
-        cursor = conn.cursor()
-        try:
-            query = "INSERT INTO Pagamento (Reserva_id, Tipo, Aprovado, Valor) VALUES (%s, %s, %s, %s)"
-            cursor.execute(query, (reserva_id, "Pix", False, valor_reserva))
-            conn.commit()
-            st.success("Use a chave PIX acima para realizar o pagamento.")
-            st.session_state['current_page'] = "Home"
-            del st.session_state['current_reserva_id']
-            st.experimental_rerun()
-        except Exception as e:
-            st.error(f"Erro ao registrar pagamento: {e}")
-        finally:
-            cursor.close()
-            conn.close()
+        st.success("Use a chave PIX acima para realizar o pagamento.")
+        st.session_state['current_page'] = "Home"
+        del st.session_state['current_reserva_id']
+        st.experimental_rerun()
 
 def show_login_page():
     st.subheader("Login")
@@ -295,6 +286,11 @@ def show_cadastro():
                     """
                     cursor.execute(query, (nome, email, senha_hashed, sexo))
                     conn.commit()
+                    
+                    email_subject = "Bem-vindo ao RoomEz!"
+                    email_body = f"Olá {nome},\n\nObrigado por se cadastrar no RoomEz! Estamos felizes em tê-lo conosco.\n\nAtenciosamente,\nEquipe RoomEz"
+                    send_email(email_subject, email_body, email)
+
                     st.success("Cliente registrado com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao inserir dados no banco de dados: {e}")
