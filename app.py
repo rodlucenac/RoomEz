@@ -80,7 +80,7 @@ def show_reservation_form(hotel_id):
     st.title("Formulário de Reserva")
     nome_completo = st.text_input("Nome Completo")
     cpf = st.text_input("CPF")
-    metodo_pagamento = st.selectbox("Método de Pagamento", ["Cartão de Crédito", "Boleto", "Pix"])
+    metodo_pagamento = st.selectbox("Método de Pagamento", ["Cartão de Crédito"])
     data_entrada = st.date_input("Data de Entrada", min_value=date.today())
     data_saida = st.date_input("Data de Saída", min_value=date.today())
 
@@ -177,56 +177,6 @@ def show_payment_page():
             finally:
                 cursor.close()
                 conn.close()
-    elif metodo_pagamento == "Boleto":
-        conn = conectar()
-        cursor = conn.cursor()
-        try:
-            query = "INSERT INTO Pagamento (Reserva_id, Tipo, Aprovado, Valor) VALUES (%s, %s, %s, %s)"
-            cursor.execute(query, (reserva_id, "Boleto", False, valor_reserva))
-            conn.commit()
-
-            email_query = "SELECT email FROM Cliente WHERE cliente_id = %s"
-            cursor.execute(email_query, (st.session_state['user_id'],))
-            email = cursor.fetchone()[0]
-
-            email_subject = "Boleto Gerado - RoomEz"
-            email_body = f"Olá,\n\nSeu boleto para a reserva #{reserva_id} foi gerado com sucesso.\n\nDetalhes do pagamento:\n\nValor: R$ {valor_reserva:.2f}\nMétodo de Pagamento: Boleto\n\nObrigado por usar o RoomEz!"
-            send_email(email_subject, email_body, email)
-
-            st.success("Boleto gerado com sucesso! Pague no seu banco ou app de preferência.")
-            st.session_state['current_page'] = "Home"
-            del st.session_state['current_reserva_id']
-            st.experimental_rerun()
-        except Exception as e:
-            st.error(f"Erro ao registrar boleto: {e}")
-        finally:
-            cursor.close()
-            conn.close()
-    elif metodo_pagamento == "Pix":
-        conn = conectar()
-        cursor = conn.cursor()
-        try:
-            query = "INSERT INTO Pagamento (Reserva_id, Tipo, Aprovado, Valor) VALUES (%s, %s, %s, %s)"
-            cursor.execute(query, (reserva_id, "Pix", False, valor_reserva))
-            conn.commit()
-
-            email_query = "SELECT email FROM Cliente WHERE cliente_id = %s"
-            cursor.execute(email_query, (st.session_state['user_id'],))
-            email = cursor.fetchone()[0]
-
-            email_subject = "PIX Gerado - RoomEz"
-            email_body = f"Olá,\n\nSua chave PIX para a reserva #{reserva_id} foi gerada com sucesso.\n\nDetalhes do pagamento:\n\nValor: R$ {valor_reserva:.2f}\nMétodo de Pagamento: PIX\n\nObrigado por usar o RoomEz!"
-            send_email(email_subject, email_body, email)
-
-            st.success("Use a chave PIX acima para realizar o pagamento.")
-            st.session_state['current_page'] = "Home"
-            del st.session_state['current_reserva_id']
-            st.experimental_rerun()
-        except Exception as e:
-            st.error(f"Erro ao registrar PIX: {e}")
-        finally:
-            cursor.close()
-            conn.close()
 
 def show_login_page():
     st.subheader("Login")
