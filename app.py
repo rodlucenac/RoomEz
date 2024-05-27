@@ -1,10 +1,10 @@
 import streamlit as st
-from banco import conectar
+from banco import conectar  # Certifique-se que este módulo contém a função de conexão correta
 import bcrypt
 from datetime import date
 import threading
 import time
-from email_send import send_email
+from email_send import send_email  # Certifique-se que este módulo contém a função de envio de e-mail
 
 def show_home():
     st.title("Página Inicial - Escolha um Hotel")
@@ -256,7 +256,8 @@ def show_reservas():
         conn.close()
 
 def show_cadastro():
-    st.title("Cadastro de Cliente")
+    st.title("Cadastro de Usuário")
+    tipo_usuario = st.radio("Você é:", ["Cliente", "Proprietário"])
     nome = st.text_input("Nome Completo")
     email = st.text_input("Email")
     senha = st.text_input("Senha", type="password")
@@ -270,18 +271,27 @@ def show_cadastro():
             if conn is not None:
                 try:
                     cursor = conn.cursor()
-                    query = """
-                    INSERT INTO Cliente (Nome, Email, Senha, Sexo)
-                    VALUES (%s, %s, %s, %s)
-                    """
-                    cursor.execute(query, (nome, email, senha_hashed, sexo))
+                    if tipo_usuario == "Cliente":
+                        query = """
+                        INSERT INTO Cliente (Nome, Email, Senha, Sexo, tipo_usuario)
+                        VALUES (%s, %s, %s, %s, %s)
+                        """
+                        cursor.execute(query, (nome, email, senha_hashed, sexo, 'cliente'))
+                        email_subject = "Bem-vindo ao RoomEz!"
+                        email_body = f"Olá {nome},\n\nObrigado por se cadastrar no RoomEz! Estamos felizes em tê-lo conosco.\n\nAtenciosamente,\nEquipe RoomEz"
+                        send_email(email_subject, email_body, email)
+                    elif tipo_usuario == "Proprietário":
+                        query = """
+                        INSERT INTO Proprietario (Nome, Email, Senha, tipo_usuario)
+                        VALUES (%s, %s, %s, %s)
+                        """
+                        cursor.execute(query, (nome, email, senha_hashed, 'proprietario'))
+                        email_subject = "Bem-vindo ao RoomEz!"
+                        email_body = f"Olá {nome},\n\nObrigado por confiar no RoomEz para lidar com as reservas de seus hoteis! Estamos felizes em tê-lo conosco.\n\nAtenciosamente,\nEquipe RoomEz"
+                        send_email(email_subject, email_body, email)
                     conn.commit()
-                    
-                    email_subject = "Bem-vindo ao RoomEz!"
-                    email_body = f"Olá {nome},\n\nObrigado por se cadastrar no RoomEz! Estamos felizes em tê-lo conosco.\n\nAtenciosamente,\nEquipe RoomEz"
-                    send_email(email_subject, email_body, email)
 
-                    st.success("Cliente registrado com sucesso!")
+                    st.success("Usuário registrado com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao inserir dados no banco de dados: {e}")
                 finally:
@@ -290,36 +300,10 @@ def show_cadastro():
         else:
             st.error("As senhas não coincidem.")
 
-def cancelar_reservas_nao_pagas():
-    while True:
-        conn = conectar()
-        if conn is not None:
-            try:
-                cursor = conn.cursor()
-                query = """
-                DELETE FROM Reserva
-                WHERE TIMESTAMPDIFF(MINUTE, Timestamp, NOW()) > 30
-                AND Reserva_id NOT IN (
-                    SELECT Reserva_id FROM Pagamento
-                )
-                """
-                cursor.execute(query)
-                conn.commit()
-                cursor.close()
-            except Exception as e:
-                print(f"Erro ao cancelar reservas: {e}")
-            finally:
-                conn.close()
-        time.sleep(1800)
 
 def main():
     if 'current_page' not in st.session_state:
         st.session_state['current_page'] = "Home"
-
-    if 'reservas_thread' not in st.session_state:
-        st.session_state['reservas_thread'] = threading.Thread(target=cancelar_reservas_nao_pagas)
-        st.session_state['reservas_thread'].daemon = True
-        st.session_state['reservas_thread'].start()
     
     st.sidebar.title("Menu")
     app_mode = st.sidebar.selectbox("Escolha uma opção",
