@@ -6,6 +6,15 @@ import threading
 import time
 from email_send import send_email
 
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+if 'user_type' not in st.session_state:
+    st.session_state['user_type'] = None
+if 'user_id' not in st.session_state:
+    st.session_state['user_id'] = None
+if 'current_page' not in st.session_state:
+    st.session_state['current_page'] = 'Home'
+
 def show_home():
     st.title("Página Inicial - Escolha um Hotel")
     
@@ -51,14 +60,13 @@ def show_home():
 def show_detalhes_hotel(hotel_id):
     conn = conectar()
     cursor = conn.cursor()
-    cursor.execute("SELECT nome, cidade, endereco_rua, endereco_cidade, endereco_estado, endereco_cep, telefone, rating, preco, foto FROM Hoteis WHERE Hotel_id = %s", (hotel_id,))
+    cursor.execute("SELECT nome, cidade, endereco_rua, endereco_cidade, endereco_estado, endereco_cep, telefone, rating, preco FROM Hoteis WHERE Hotel_id = %s", (hotel_id,))
     hotel = cursor.fetchone()
     cursor.close()
     conn.close()
 
     if hotel:
         st.title(hotel[0])
-        st.image(hotel[9], use_column_width=True)
         st.write(f"Local: {hotel[1]}, {hotel[2]}, {hotel[3]}, {hotel[4]}, CEP: {hotel[5]}")
         st.write(f"Telefone: {hotel[6]}")
         st.write(f"Rating: {hotel[7]}★")
@@ -186,7 +194,6 @@ def show_payment_page():
         cursor.close()
         conn.close()
 
-
 def show_pagina_login():
     st.subheader("Login")
     email = st.text_input("Nome de usuário", key="login_email")
@@ -195,15 +202,18 @@ def show_pagina_login():
     login_col, signup_col = st.columns(2)
     with login_col:
         if st.button("Login"):
-            if authenticate(email, senha):
+            authenticated, user_type, user_id = authenticate(email, senha)
+            if authenticated:
                 st.session_state['logged_in'] = True
-                st.session_state['user_id'] = get_user_id(email)
+                st.session_state['user_type'] = user_type
+                st.session_state['user_id'] = user_id
+                
                 if 'target_page' in st.session_state:
                     target_page = st.session_state['target_page']
                     del st.session_state['target_page']
                     st.session_state['current_page'] = target_page
                 else:
-                    st.session_state['current_page'] = 'Home'
+                    st.session_state['current_page'] = 'Painel do Proprietário' if user_type == 'proprietário' else 'Home'
                 st.experimental_rerun()
             else:
                 st.error("Usuário ou senha incorretos")
@@ -218,18 +228,20 @@ def authenticate(email, senha):
     if conn is not None:
         cursor = conn.cursor(buffered=True)
         try:
-            cursor.execute("SELECT senha FROM Cliente WHERE email = %s", (email,))
-            senha_hashed = cursor.fetchone()
-            if senha_hashed and bcrypt.checkpw(senha.encode('utf-8'), senha_hashed[0].encode('utf-8')):
-                return True
-            else:
-                return False
+            cursor.execute("SELECT senha, 'cliente' as tipo_usuario, cliente_id FROM Cliente WHERE email = %s UNION SELECT senha, 'proprietário' as tipo_usuario, proprietario_id FROM Proprietario WHERE email = %s", (email, email))
+            user_info = cursor.fetchone()
+            if user_info and bcrypt.checkpw(senha.encode('utf-8'), user_info[0].encode('utf-8')):
+                return True, user_info[1], user_info[2]  # Retorna True, tipo de usuário e ID
+            return False, None, None
         except Exception as e:
             st.error(f"Erro ao verificar usuário: {e}")
-            return False
+            return False, None, None
         finally:
             cursor.close()
             conn.close()
+    else:
+        st.error("Não foi possível conectar ao banco de dados.")
+        return False, None, None
 
 def get_user_id(email):
     conn = conectar()
@@ -310,80 +322,59 @@ def show_cadastro():
             st.error("As senhas não coincidem.")
 
 def show_consultas_proprietario():
-    if 'logged_in' not in st.session_state or not st.session_state['logged_in'] or st.session_state['tipo_usuario'] != 'proprietario':
-        st.error("Você precisa estar logado como proprietário para acessar esta página.")
+    if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
+        st.error("Você precisa estar logado para acessar esta página.")
+        return
+    
+    if 'user_type' not in st.session_state or st.session_state['user_type'] != 'proprietário':
+        st.error("Acesso restrito a proprietários.")
         return
 
     st.title("Painel do Proprietário")
 
+    opcao = st.selectbox(
+        "Escolha a informação que deseja visualizar:",
+        ("Hotéis", "Reservas", "Serviços", "Eventos", "Comentários", "Pagamentos")
+    )
+
     conn = conectar()
     cursor = conn.cursor()
 
-    st.subheader("Seus Hotéis")
-    cursor.execute("SELECT * FROM ViewHoteisProprietario WHERE Proprietario = %s", (st.session_state['user_name'],))
-    hoteis = cursor.fetchall()
-    for hotel in hoteis:
-        st.write(f"ID: {hotel[0]}, Nome: {hotel[1]}, Cidade: {hotel[2]}")
+    if opcao == "Hotéis":
+        cursor.execute("SELECT * FROM viewHoteisProprietario WHERE proprietario_id = %s", (st.session_state['user_id'],))
+        data = cursor.fetchall()
+        columns = ['Proprietário', 'Hotel ID', 'Nome', 'Cidade', 'Preço', 'Rating', 'Rua', 'Cidade', 'Estado', 'CEP', 'Telefone']
+    elif opcao == "Reservas":
+        cursor.execute("SELECT * FROM viewReservasPorHotel WHERE proprietario_id = %s", (st.session_state['user_id'],))
+        data = cursor.fetchall()
+        columns = ['Hotel', 'Reserva ID', 'Cliente', 'CPF', 'Método Pagamento', 'Data Entrada', 'Data Saída', 'Valor Reserva', 'Estado']
+    elif opcao == "Serviços":
+        cursor.execute("SELECT * FROM viewServicosPorHotel WHERE proprietario_id = %s", (st.session_state['user_id'],))
+        data = cursor.fetchall()
+        columns = ['Proprietário', 'Hotel', 'Serviço', 'Descrição', 'Preço']
+    elif opcao == "Eventos":
+        cursor.execute("SELECT * FROM viewEventosPorHotel WHERE proprietario_id = %s", (st.session_state['user_id'],))
+        data = cursor.fetchall()
+        columns = ['Proprietário', 'Hotel', 'Evento', 'Descrição', 'Data Início', 'Data Fim', 'Preço Ingresso']
+    elif opcao == "Comentários":
+        cursor.execute("SELECT * FROM viewComentariosPorHotel WHERE proprietario_id = %s", (st.session_state['user_id'],))
+        data = cursor.fetchall()
+        columns = ['Proprietário', 'Hotel', 'Comentário', 'Data', 'Rating']
+    elif opcao == "Pagamentos":
+        cursor.execute("SELECT * FROM viewPagamentosPorReserva WHERE proprietario_id = %s", (st.session_state['user_id'],))
+        data = cursor.fetchall()
+        columns = ['Hotel', 'Cliente', 'Reserva ID', 'Pagamento ID', 'Tipo', 'Valor', 'Aprovado']
 
-    st.subheader("Serviços nos Seus Hotéis")
-    cursor.execute("SELECT * FROM ViewServicosPorHotel WHERE Proprietario = %s", (st.session_state['user_name'],))
-    servicos = cursor.fetchall()
-    if servicos:
-        for servico in servicos:
-            st.write(f"Hotel: {servico[1]}, Serviço: {servico[2]}, Descrição: {servico[3]}, Preço: R$ {servico[4]:,.2f}")
+    if data:
+        st.table([columns] + list(data))
     else:
-        st.write("Não há serviços cadastrados em seus hotéis.")
-
-    st.subheader("Eventos nos Seus Hotéis")
-    cursor.execute("SELECT * FROM ViewEventosPorHotel WHERE Proprietario = %s", (st.session_state['user_name'],))
-    eventos = cursor.fetchall()
-    if eventos:
-        for evento in eventos:
-            st.write(f"Hotel: {evento[1]}, Evento: {evento[2]}, Descrição: {evento[3]}, Início: {evento[4]}, Fim: {evento[5]}, Preço: R$ {evento[6]:,.2f}")
-    else:
-        st.write("Não há eventos programados em seus hotéis.")
-
-    st.subheader("Comentários sobre Seus Hotéis")
-    cursor.execute("SELECT * FROM ViewComentariosPorHotel WHERE Proprietario = %s", (st.session_state['user_name'],))
-    comentarios = cursor.fetchall()
-    if comentarios:
-        for comentario in comentarios:
-            st.write(f"Hotel: {comentario[1]}, Data: {comentario[3]}, Rating: {comentario[4]} estrelas")
-            st.text(comentario[2])
-    else:
-        st.write("Não há comentários sobre seus hotéis.")
-    st.subheader("Reservas nos Seus Hotéis")
-    cursor.execute("SELECT * FROM ViewReservasPorHotel WHERE Proprietario = %s", (st.session_state['user_name'],))
-    reservas = cursor.fetchall()
-    if reservas:
-        for reserva in reservas:
-            st.write(f"Reserva ID: {reserva[0]}, Hotel: {reserva[1]}, Cliente: {reserva[2]}, Entrada: {reserva[5]}, Saída: {reserva[6]}")
-    else:
-        st.write("Não há reservas pendentes.")
-
-    st.subheader("Pagamentos Recebidos")
-    cursor.execute("SELECT * FROM ViewPagamentosPorReserva WHERE Proprietario = %s", (st.session_state['user_name'],))
-    pagamentos = cursor.fetchall()
-    if pagamentos:
-        for pagamento in pagamentos:
-            st.write(f"Pagamento ID: {pagamento[0]}, Reserva ID: {pagamento[1]}, Tipo: {pagamento[3]}, Valor: R${pagamento[4]:,.2f}")
-    else:
-        st.write("Não há pagamentos recebidos.")
-
-    st.subheader("Clientes nos Seus Hotéis")
-    cursor.execute("SELECT * FROM ViewClientesPorHotel WHERE Proprietario = %s", (st.session_state['user_name'],))
-    clientes = cursor.fetchall()
-    if clientes:
-        for cliente in clientes:
-            st.write(f"Cliente ID: {cliente[0]}, Nome: {cliente[1]}, Sexo: {cliente[2]}, Email: {cliente[3]}")
-    else:
-        st.write("Não há clientes registrados.")
+        st.write(f"Não há {opcao.lower()} cadastrados sob sua propriedade.")
 
     cursor.close()
     conn.close()
 
 def show_pending_reservations():
-    if 'logged_in' not in st.session_state or not st.session_state['logged_in'] or st.session_state['tipo_usuario'] != 'proprietario':
+    if 'logged_in' not in st.session_state or not st.session_state['logged_in'] or st.session_state['user_type'] != 'proprietário':
         st.error("Você precisa estar logado como proprietário para acessar esta página.")
         return
 
@@ -484,73 +475,192 @@ def add_comentario(hotel_id, cliente_id, comentario, rating):
         conn.close()
 
 def add_servico():
-    if 'logged_in' not in st.session_state or not st.session_state['logged_in'] or st.session_state['tipo_usuario'] != 'proprietario':
-        st.error("Você precisa estar logado como proprietário para adicionar serviços.")
+    if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
+        st.error("Você precisa estar logado para acessar esta página.")
         return
+    
+    if 'user_type' in st.session_state and st.session_state['user_type'] == 'proprietário':
+        st.title("Adicionar Novo Serviço")
+        conn = conectar()
+        cursor = conn.cursor()
 
-    st.title("Adicionar Novo Serviço")
-    conn = conectar()
-    cursor = conn.cursor()
+        cursor.execute("SELECT hotel_id, nome FROM Hoteis WHERE proprietario_id = %s", (st.session_state['user_id'],))
+        hoteis = cursor.fetchall()
+        hotel_options = {hotel[1]: hotel[0] for hotel in hoteis}
+        selected_hotel = st.selectbox("Selecione o Hotel", list(hotel_options.keys()))
 
-    cursor.execute("SELECT hotel_id, nome FROM Hoteis WHERE proprietario_id = %s", (st.session_state['user_id'],))
-    hoteis = cursor.fetchall()
-    hotel_options = {hotel[1]: hotel[0] for hotel in hoteis}
-    selected_hotel = st.selectbox("Selecione o Hotel", list(hotel_options.keys()))
+        nome_servico = st.text_input("Nome do Serviço")
+        descricao = st.text_area("Descrição do Serviço")
+        preco = st.number_input("Preço do Serviço", min_value=0.0, format="%.2f")
 
-    nome_servico = st.text_input("Nome do Serviço")
-    descricao = st.text_area("Descrição do Serviço")
-    preco = st.number_input("Preço do Serviço", min_value=0.0, format="%.2f")
-
-    if st.button("Adicionar Serviço"):
-        try:
-            cursor.execute("""
-                INSERT INTO Servicos (hotel_id, nome_servico, descricao, preco)
-                VALUES (%s, %s, %s, %s)
-            """, (hotel_options[selected_hotel], nome_servico, descricao, preco))
-            conn.commit()
-            st.success("Serviço adicionado com sucesso!")
-        except Exception as e:
-            st.error(f"Erro ao adicionar serviço: {e}")
-            conn.rollback()
-        finally:
-            cursor.close()
-            conn.close()
+        if st.button("Adicionar Serviço"):
+            try:
+                cursor.execute("""
+                    INSERT INTO Servicos (hotel_id, nome_servico, descricao, preco)
+                    VALUES (%s, %s, %s, %s)
+                """, (hotel_options[selected_hotel], nome_servico, descricao, preco))
+                conn.commit()
+                st.success("Serviço adicionado com sucesso!")
+            except Exception as e:
+                st.error(f"Erro ao adicionar serviço: {e}")
+                conn.rollback()
+            finally:
+                cursor.close()
+                conn.close()
+    else:
+        st.error("Acesso restrito a proprietários.")
 
 def add_evento():
-    if 'logged_in' not in st.session_state or not st.session_state['logged_in'] or st.session_state['tipo_usuario'] != 'proprietario':
-        st.error("Você precisa estar logado como proprietário para adicionar um evento.")
+    if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
+        st.error("Você precisa estar logado para acessar esta página.")
+        return
+    
+    if 'user_type' in st.session_state and st.session_state['user_type'] == 'proprietário':
+        st.title("Adicionar Novo Evento")
+        conn = conectar()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT hotel_id, nome FROM Hoteis WHERE proprietario_id = %s", (st.session_state['user_id'],))
+        hoteis = cursor.fetchall()
+        hotel_options = {hotel[1]: hotel[0] for hotel in hoteis}
+        selected_hotel = st.selectbox("Selecione o Hotel", list(hotel_options.keys()))
+
+        nome_evento = st.text_input("Nome do Evento")
+        descricao = st.text_area("Descrição do Evento")
+        data_inicio = st.date_input("Data de Início", min_value=date.today())
+        data_fim = st.date_input("Data de Fim", min_value=data_inicio)
+        preco_ingresso = st.number_input("Preço do Ingresso", min_value=0.0, format="%.2f")
+        capacidade = st.number_input("Capacidade", min_value=1, step=1)
+
+        if st.button("Adicionar Evento"):
+            try:
+                cursor.execute("""
+                    INSERT INTO Eventos (hotel_id, nome_evento, descricao, data_inicio, data_fim, preco_ingresso, capacidade)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, (hotel_options[selected_hotel], nome_evento, descricao, data_inicio, data_fim, preco_ingresso, capacidade))
+                conn.commit()
+                st.success("Evento adicionado com sucesso!")
+            except Exception as e:
+                st.error(f"Erro ao adicionar evento: {e}")
+                conn.rollback()
+            finally:
+                cursor.close()
+                conn.close()
+    else:
+        st.error("Acesso restrito a proprietários.")
+
+def add_hotel():
+    if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
+        st.error("Você precisa estar logado para acessar esta página.")
         return
 
-    st.title("Adicionar Novo Evento")
+    if 'user_type' in st.session_state and st.session_state['user_type'] == 'proprietário':
+        st.title("Adicionar Novo Hotel")
+
+        nome = st.text_input("Nome do Hotel")
+        cidade = st.text_input("Cidade")
+        preco = st.number_input("Preço por Noite", min_value=0.0, format="%.2f")
+        rating = st.number_input("Rating", min_value=0.0, max_value=5.0, format="%.1f")
+        rua = st.text_input("Endereço - Rua")
+        estado = st.text_input("Endereço - Estado")
+        cep = st.text_input("Endereço - CEP")
+        telefone = st.text_input("Telefone")
+
+        if st.button("Adicionar Hotel"):
+            if nome and cidade and preco and rua and estado and cep and telefone:
+                conn = conectar()
+                cursor = conn.cursor()
+                try:
+                    cursor.execute("""
+                        INSERT INTO Hoteis (nome, cidade, preco, rating, endereco_rua, endereco_estado, endereco_cep, telefone, proprietario_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (nome, cidade, preco, rating, rua, estado, cep, telefone, st.session_state['user_id']))
+                    conn.commit()
+                    st.success("Hotel adicionado com sucesso!")
+                except Exception as e:
+                    st.error(f"Erro ao adicionar hotel: {e}")
+                    conn.rollback()
+                finally:
+                    cursor.close()
+                    conn.close()
+            else:
+                st.error("Todos os campos devem ser preenchidos.")
+    else:
+        st.error("Acesso restrito a proprietários.")
+
+def show_hotels_to_edit_or_delete():
+    if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
+        st.error("Você precisa estar logado para acessar esta página.")
+        return
+
+    if 'user_type' in st.session_state and st.session_state['user_type'] == 'proprietário':
+        st.title("Gerenciar Hotéis")
+
+        conn = conectar()
+        cursor = conn.cursor()
+        cursor.execute("SELECT hotel_id, nome FROM Hoteis WHERE proprietario_id = %s", (st.session_state['user_id'],))
+        hotels = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        if not hotels:
+            st.write("Você não tem hotéis cadastrados.")
+            return
+
+        hotel_options = {hotel[1]: hotel[0] for hotel in hotels}
+        selected_hotel_name = st.selectbox("Selecione o Hotel", list(hotel_options.keys()))
+        selected_hotel_id = hotel_options[selected_hotel_name]
+
+        if st.button("Excluir Hotel"):
+            delete_hotel(selected_hotel_id)
+
+        st.write("Ou você pode editar os detalhes do hotel abaixo:")
+        nome = st.text_input("Nome do Hotel", value=selected_hotel_name)
+        cidade = st.text_input("Cidade")
+        preco = st.number_input("Preço por Noite", min_value=0.0, format="%.2f")
+        rating = st.number_input("Rating", min_value=0.0, max_value=5.0, format="%.1f")
+        rua = st.text_input("Endereço - Rua")
+        estado = st.text_input("Endereço - Estado")
+        cep = st.text_input("Endereço - CEP")
+        telefone = st.text_input("Telefone")
+        foto = st.text_input("URL da Foto")
+
+        if st.button("Atualizar Hotel"):
+            update_hotel(selected_hotel_id, nome, cidade, preco, rating, rua, estado, cep, telefone, foto)
+    else:
+        st.error("Acesso restrito a proprietários.")
+
+def delete_hotel(hotel_id):
     conn = conectar()
     cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM Hoteis WHERE hotel_id = %s", (hotel_id,))
+        conn.commit()
+        st.success("Hotel excluído com sucesso!")
+    except Exception as e:
+        st.error(f"Erro ao excluir hotel: {e}")
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
 
-    cursor.execute("SELECT hotel_id, nome FROM Hoteis WHERE proprietario_id = %s", (st.session_state['user_id'],))
-    hoteis = cursor.fetchall()
-    hotel_options = {hotel[1]: hotel[0] for hotel in hoteis}
-    selected_hotel = st.selectbox("Selecione o Hotel", list(hotel_options.keys()))
-
-    nome_evento = st.text_input("Nome do Evento")
-    descricao = st.text_area("Descrição do Evento")
-    data_inicio = st.date_input("Data de Início", min_value=date.today())
-    data_fim = st.date_input("Data de Fim", min_value=data_inicio)
-    preco_ingresso = st.number_input("Preço do Ingresso", min_value=0.0, format="%.2f")
-    capacidade = st.number_input("Capacidade", min_value=1, step=1)
-
-    if st.button("Adicionar Evento"):
-        try:
-            cursor.execute("""
-                INSERT INTO Eventos (hotel_id, nome_evento, descricao, data_inicio, data_fim, preco_ingresso, capacidade)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (hotel_options[selected_hotel], nome_evento, descricao, data_inicio, data_fim, preco_ingresso, capacidade))
-            conn.commit()
-            st.success("Evento adicionado com sucesso!")
-        except Exception as e:
-            st.error(f"Erro ao adicionar evento: {e}")
-            conn.rollback()
-        finally:
-            cursor.close()
-            conn.close()
+def update_hotel(hotel_id, nome, cidade, preco, rating, rua, estado, cep, telefone, foto):
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE Hoteis
+            SET nome = %s, cidade = %s, preco = %s, rating = %s, endereco_rua = %s, endereco_estado = %s, endereco_cep = %s, telefone = %s, foto = %s
+            WHERE hotel_id = %s
+        """, (nome, cidade, preco, rating, rua, estado, cep, telefone, foto, hotel_id))
+        conn.commit()
+        st.success("Hotel atualizado com sucesso!")
+    except Exception as e:
+        st.error(f"Erro ao atualizar hotel: {e}")
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
 
 def main():
     if 'current_page' not in st.session_state:
@@ -558,8 +668,8 @@ def main():
     
     st.sidebar.title("Menu")
     app_mode = st.sidebar.selectbox("Escolha uma opção",
-                                    ["Home", "Cadastro", "Reservas", "Login", "Consultas Proprietário", "Gerenciar Reservas Pendentes", "Hotel", "Reservar", "Pagamento", "Adicionar Serviço", "Adicionar Comentario", "Adicionar Evento"],
-                                    index=["Home", "Cadastro", "Reservas", "Login", "Consultas Proprietário", "Gerenciar Reservas Pendentes", "Hotel", "Reservar", "Pagamento", "Adicionar Serviço", "Adicionar Comentario", "Adicionar Evento"].index(st.session_state.get('current_page', 'Home')))
+                                    ["Home", "Cadastro", "Reservas", "Login", "Painel do Proprietário", "Gerenciar Reservas Pendentes", "Hotel", "Reservar", "Pagamento", "Adicionar Serviço", "Adicionar Comentario", "Adicionar Evento", "Adicionar Hotel", "Gerenciar Hotel"],
+                                    index=["Home", "Cadastro", "Reservas", "Login", "Painel do Proprietário", "Gerenciar Reservas Pendentes", "Hotel", "Reservar", "Pagamento", "Adicionar Serviço", "Adicionar Comentario", "Adicionar Evento", "Adicionar Hotel", "Gerenciar Hotel"].index(st.session_state.get('current_page', 'Home')))
 
     if app_mode == "Home":
         st.session_state['current_page'] = "Home"
@@ -581,8 +691,8 @@ def main():
             show_form_reserva(st.session_state['current_hotel_id'])
     elif app_mode == "Pagamento":
         show_payment_page()
-    elif app_mode == "Consultas Proprietário":
-        st.session_state['current_page'] = "Consultas Proprietário"
+    elif app_mode == "Painel do Proprietário":
+        st.session_state['current_page'] = "Painel do Proprietário"
         show_consultas_proprietario()
     elif app_mode == "Gerenciar Reservas Pendentes":
         st.session_state['current_page'] = "Gerenciar Reservas Pendentes"
@@ -596,6 +706,12 @@ def main():
     elif app_mode == "Adicionar Evento":
         st.session_state['current_page'] = "Adicionar Evento"
         add_evento()
+    elif app_mode == "Adicionar Hotel":
+        st.session_state['current_page'] = "Adicionar Hotel"
+        add_hotel()
+    elif app_mode == "Gerenciar Hotel":
+        st.session_state['current_page'] = "Gerenciar Hotel"
+        show_hotels_to_edit_or_delete()
 
 if __name__ == "__main__":
     main()
