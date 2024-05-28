@@ -1,10 +1,10 @@
 import streamlit as st
-from banco import conectar  # Certifique-se que este módulo contém a função de conexão correta
+from banco import conectar
 import bcrypt
 from datetime import date
 import threading
 import time
-from email_send import send_email  # Certifique-se que este módulo contém a função de envio de e-mail
+from email_send import send_email
 
 def show_home():
     st.title("Página Inicial - Escolha um Hotel")
@@ -48,7 +48,7 @@ def show_home():
             st.session_state['current_page'] = "Hotel"
             st.experimental_rerun()
 
-def show_hotel_details(hotel_id):
+def show_detalhes_hotel(hotel_id):
     conn = conectar()
     cursor = conn.cursor()
     cursor.execute("SELECT nome, cidade, endereco_rua, endereco_cidade, endereco_estado, endereco_cep, telefone, rating, preco, foto FROM Hoteis WHERE Hotel_id = %s", (hotel_id,))
@@ -69,7 +69,7 @@ def show_hotel_details(hotel_id):
             st.session_state['current_hotel_id'] = hotel_id
             st.experimental_rerun()
 
-def show_reservation_form(hotel_id):
+def show_form_reserva(hotel_id):
     if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
         st.session_state['target_page'] = 'Reservar'
         st.session_state['current_hotel_id'] = hotel_id
@@ -121,6 +121,32 @@ def show_reservation_form(hotel_id):
                 cursor.close()
                 conn.close()
 
+def process_payment(reserva_id, valor):
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        payment_success = True
+
+        if payment_success:
+            cursor.execute("UPDATE Pagamento SET aprovado = TRUE WHERE reserva_id = %s", (reserva_id,))
+            conn.commit()
+
+            cursor.execute("SELECT email FROM Cliente WHERE cliente_id = (SELECT cliente_id FROM Reserva WHERE reserva_id = %s)", (reserva_id,))
+            email = cursor.fetchone()[0]
+            email_subject = "Confirmação de Pagamento - RoomEz"
+            email_body = f"Olá,\n\nSeu pagamento de R$ {valor:.2f} foi processado com sucesso.\n\nDetalhes do pagamento:\nValor: R$ {valor:.2f}\n\nObrigado por usar o RoomEz!"
+            send_email(email_subject, email_body, email)
+
+            st.success("Pagamento realizado com sucesso!")
+        else:
+            st.error("Pagamento falhou. Por favor, tente novamente.")
+    except Exception as e:
+        st.error(f"Erro ao processar o pagamento: {e}")
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
+
 def show_payment_page():
     if 'current_reserva_id' not in st.session_state:
         st.error("Nenhuma reserva encontrada.")
@@ -132,53 +158,36 @@ def show_payment_page():
 
     conn = conectar()
     cursor = conn.cursor()
-    cursor.execute("SELECT Metodo_pagamento, Valor_reserva FROM Reserva WHERE Reserva_id = %s", (reserva_id,))
+    cursor.execute("SELECT Metodo_pagamento, Valor_reserva FROM Reserva WHERE Reserva_id = %s AND aceita = TRUE", (reserva_id,))
     reserva = cursor.fetchone()
-    metodo_pagamento = reserva[0]
-    valor_reserva = reserva[1]
-    cursor.close()
-    conn.close()
+    if reserva:
+        metodo_pagamento = reserva[0]
+        valor_reserva = reserva[1]
+        cursor.close()
+        conn.close()
 
-    st.title("Pagamento")
-    st.write(f"Valor total: R$ {valor_reserva:.2f}")
+        st.title("Pagamento")
+        st.write(f"Valor total: R$ {valor_reserva:.2f}")
 
-    if metodo_pagamento == "Cartão de Crédito":
-        cartao_numero = st.text_input("Número do Cartão")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            cartao_mes = st.text_input("Validade Mês (MM)", max_chars=2)
-        with col2:
-            cartao_ano = st.text_input("Validade Ano (AA)", max_chars=2)
-        
-        cartao_cvc = st.text_input("CVC")
-        if st.button("Pagar"):
-            conn = conectar()
-            cursor = conn.cursor()
-            try:
-                query = "INSERT INTO Pagamento (Reserva_id, Tipo, Aprovado, Valor) VALUES (%s, %s, %s, %s)"
-                cursor.execute(query, (reserva_id, "Cartão de Crédito", True, valor_reserva))
-                conn.commit()
-                
-                email_query = "SELECT email FROM Cliente WHERE cliente_id = %s"
-                cursor.execute(email_query, (st.session_state['user_id'],))
-                email = cursor.fetchone()[0]
-                
-                email_subject = "Confirmação de Pagamento - RoomEz"
-                email_body = f"Olá,\n\nSeu pagamento para a reserva #{reserva_id} foi aprovado com sucesso.\n\nDetalhes do pagamento:\n\nValor: R$ {valor_reserva:.2f}\nMétodo de Pagamento: Cartão de Crédito\n\nObrigado por usar o RoomEz!"
-                send_email(email_subject, email_body, email)
+        if metodo_pagamento == "Cartão de Crédito":
+            cartao_numero = st.text_input("Número do Cartão")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                cartao_mes = st.text_input("Validade Mês (MM)", max_chars=2)
+            with col2:
+                cartao_ano = st.text_input("Validade Ano (AA)", max_chars=2)
+            
+            cartao_cvc = st.text_input("CVC")
+            if st.button("Pagar"):
+                process_payment(reserva_id, valor_reserva)
+    else:
+        st.write("Pagamento não disponível. Certifique-se de que sua reserva foi aprovada.")
+        cursor.close()
+        conn.close()
 
-                st.success("Pagamento realizado com sucesso!")
-                st.session_state['current_page'] = "Home"
-                del st.session_state['current_reserva_id']
-                st.experimental_rerun()
-            except Exception as e:
-                st.error(f"Erro ao registrar pagamento: {e}")
-            finally:
-                cursor.close()
-                conn.close()
 
-def show_login_page():
+def show_pagina_login():
     st.subheader("Login")
     email = st.text_input("Nome de usuário", key="login_email")
     senha = st.text_input("Senha", type="password", key="login_senha")
@@ -237,7 +246,7 @@ def get_user_id(email):
 def show_reservas():
     if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
         st.warning("Você precisa estar logado para ver suas reservas.")
-        show_login_page()
+        show_pagina_login()
         return
 
     st.title("Suas Reservas")
@@ -300,6 +309,109 @@ def show_cadastro():
         else:
             st.error("As senhas não coincidem.")
 
+def show_consultas_proprietario():
+    if 'logged_in' not in st.session_state or not st.session_state['logged_in'] or st.session_state['tipo_usuario'] != 'proprietario':
+        st.error("Você precisa estar logado como proprietário para acessar esta página.")
+        return
+    
+    st.title("Painel do Proprietário")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    st.subheader("Seus Hotéis")
+    cursor.execute("SELECT * FROM ViewHoteisProprietario WHERE Proprietario = %s", (st.session_state['user_name'],))
+    hoteis = cursor.fetchall()
+    for hotel in hoteis:
+        st.write(f"ID: {hotel[0]}, Nome: {hotel[1]}, Cidade: {hotel[2]}")
+
+    st.subheader("Reservas nos Seus Hotéis")
+    cursor.execute("SELECT * FROM ViewReservasPorHotel WHERE Proprietario = %s", (st.session_state['user_name'],))
+    reservas = cursor.fetchall()
+    for reserva in reservas:
+        st.write(f"Reserva ID: {reserva[0]}, Hotel: {reserva[1]}, Cliente: {reserva[2]}, Entrada: {reserva[5]}, Saída: {reserva[6]}")
+
+    st.subheader("Pagamentos Recebidos")
+    cursor.execute("SELECT * FROM ViewPagamentosPorReserva WHERE Proprietario = %s", (st.session_state['user_name'],))
+    pagamentos = cursor.fetchall()
+    for pagamento in pagamentos:
+        st.write(f"Pagamento ID: {pagamento[0]}, Reserva ID: {pagamento[1]}, Tipo: {pagamento[3]}, Valor: R${pagamento[4]:,.2f}")
+
+    cursor.close()
+    conn.close()
+
+def show_pending_reservations():
+    if 'logged_in' not in st.session_state or not st.session_state['logged_in'] or st.session_state['tipo_usuario'] != 'proprietario':
+        st.error("Você precisa estar logado como proprietário para acessar esta página.")
+        return
+
+    st.title("Gerenciar Reservas Pendentes")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT r.reserva_id, h.nome, r.nome_completo, r.data_entrada, r.data_saida, r.valor_reserva
+    FROM Reserva r
+    JOIN Hoteis h ON r.hotel_id = h.hotel_id
+    WHERE h.proprietario_id = %s AND r.aceita = FALSE
+    """, (st.session_state['user_id'],))
+    
+    reservas = cursor.fetchall()
+    if reservas:
+        for reserva in reservas:
+            with st.expander(f"Reserva {reserva[0]} - {reserva[1]}"):
+                st.write(f"Cliente: {reserva[2]}")
+                st.write(f"Data de Entrada: {reserva[3]}")
+                st.write(f"Data de Saída: {reserva[4]}")
+                st.write(f"Valor da Reserva: R$ {reserva[5]:,.2f}")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("Aceitar", key=f"aceitar_{reserva[0]}"):
+                        update_reservation_status(reserva[0], True)
+                with col2:
+                    if st.button("Rejeitar", key=f"rejeitar_{reserva[0]}"):
+                        update_reservation_status(reserva[0], False)
+    else:
+        st.write("Não há reservas pendentes.")
+    
+    cursor.close()
+    conn.close()
+
+def update_reservation_status(reserva_id, aceita):
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        if aceita:
+            cursor.execute("UPDATE Reserva SET aceita = TRUE WHERE reserva_id = %s", (reserva_id,))
+            conn.commit()
+
+            cursor.execute("SELECT email, nome_completo FROM Cliente WHERE cliente_id = (SELECT cliente_id FROM Reserva WHERE reserva_id = %s)", (reserva_id,))
+            cliente_info = cursor.fetchone()
+            email = cliente_info[0]
+            nome_cliente = cliente_info[1]
+
+            email_subject = "Reserva Aprovada!"
+            email_body = f"Olá {nome_cliente},\n\nParabéns, sua reserva foi aprovada! Efetue o pagamento na página de pagamento."
+            send_email(email_subject, email_body, email)
+
+            cursor.execute("SELECT valor_reserva FROM Reserva WHERE reserva_id = %s", (reserva_id,))
+            valor_reserva = cursor.fetchone()[0]
+            cursor.execute("INSERT INTO Pagamento (reserva_id, tipo, valor, aprovado) VALUES (%s, 'Pendente', %s, FALSE)", (reserva_id, valor_reserva))
+            conn.commit()
+
+        else:
+            cursor.execute("DELETE FROM Reserva WHERE reserva_id = %s", (reserva_id,))
+            conn.commit()
+        
+        st.success("Reserva atualizada com sucesso!")
+        st.experimental_rerun()
+    except Exception as e:
+        st.error(f"Erro ao atualizar reserva: {e}")
+    finally:
+        cursor.close()
+        conn.close()
 
 def main():
     if 'current_page' not in st.session_state:
@@ -307,8 +419,8 @@ def main():
     
     st.sidebar.title("Menu")
     app_mode = st.sidebar.selectbox("Escolha uma opção",
-                                    ["Home", "Cadastro", "Reservas", "Login", "Hotel", "Reservar", "Pagamento"],
-                                    index=["Home", "Cadastro", "Reservas", "Login", "Hotel", "Reservar", "Pagamento"].index(st.session_state.get('current_page', 'Home')))
+                                    ["Home", "Cadastro", "Reservas", "Login", "Consultas Proprietário", "Gerenciar Reservas Pendentes", "Hotel", "Reservar", "Pagamento"],
+                                    index=["Home", "Cadastro", "Reservas", "Login", "Consultas Proprietário", "Gerenciar Reservas Pendentes", "Hotel", "Reservar", "Pagamento"].index(st.session_state.get('current_page', 'Home')))
 
     if app_mode == "Home":
         st.session_state['current_page'] = "Home"
@@ -321,15 +433,21 @@ def main():
         show_reservas()
     elif app_mode == "Login":
         st.session_state['current_page'] = "Login"
-        show_login_page()
+        show_pagina_login()
     elif app_mode == "Hotel":
         if 'current_hotel_id' in st.session_state:
-            show_hotel_details(st.session_state['current_hotel_id'])
+            show_detalhes_hotel(st.session_state['current_hotel_id'])
     elif app_mode == "Reservar":
         if 'current_hotel_id' in st.session_state:
-            show_reservation_form(st.session_state['current_hotel_id'])
+            show_form_reserva(st.session_state['current_hotel_id'])
     elif app_mode == "Pagamento":
         show_payment_page()
+    elif app_mode == "Consultas Proprietário":
+        st.session_state['current_page'] = "Consultas Proprietário"
+        show_consultas_proprietario()
+    elif app_mode == "Gerenciar Reservas Pendentes":
+        st.session_state['current_page'] = "Gerenciar Reservas Pendentes"
+        show_pending_reservations()
 
 if __name__ == "__main__":
     main()
